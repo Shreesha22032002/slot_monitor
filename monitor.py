@@ -8,7 +8,18 @@ PORTAL_PASS = os.getenv("PORTAL_PASS")
 
 SEEN_FILE = "seen_requests.txt"
 
+def send_telegram_message(message):
+    bot_token = os.getenv("BOT_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
 
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message
+    }
+
+    requests.post(url, data=payload)
+    
 def load_seen_requests():
     if not os.path.exists(SEEN_FILE):
         return set()
@@ -71,27 +82,35 @@ def check_slots():
 
         new_found = False
 
-        # Skip header row (first row)
-        for row in rows[1:]:
-            cols = row.query_selector_all("td")
-            if len(cols) < 5:
-                continue
+for row in rows[1:]:  # skip header row
+    cols = row.query_selector_all("td")
+    if len(cols) < 5:
+        continue
 
-            request_no = cols[1].inner_text().strip()
-            department = cols[4].inner_text().strip().lower()
+    request_no = cols[1].inner_text().strip()
+    department = cols[4].inner_text().strip()
 
-            if department == "Gastroenterology and Hepatology":
-                if request_no not in seen_requests:
-                    print("🚨 NEW CONSULTATION FOUND!")
-                    print(f"Request No: {request_no}")
-                    print(f"Department: {department}")
-                    print("-" * 40)
+    print(f"Checking → {request_no} | {department}")
 
-                    seen_requests.add(request_no)
-                    new_found = True
+    # TEST CONDITION
+    if "physiology" in department.lower():
 
-        if not new_found:
-            print("No new Msc Data Science consultations.")
+        print("🚨 TEST MATCH FOUND!")
+        print(f"Request No: {request_no}")
+        print(f"Department: {department}")
+        print("-" * 40)
+
+        # 🔔 Telegram call
+        send_telegram_message(
+            f"🚨 TEST ALERT\n"
+            f"Request: {request_no}\n"
+            f"Department: {department}"
+        )
+
+        new_found = True
+
+if not new_found:
+    print("No Physiology consultations found.")
 
         save_seen_requests(seen_requests)
 
