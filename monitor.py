@@ -77,7 +77,7 @@ def check_slots():
             print(f"Checking → {request_no} | {department}")
 
             # TEST CONDITION
-            if "M.Sc.RRT&DT" in department.lower():
+            if "m.sc.rrt&dt" in department.lower():
 
                 print("🚨 TEST MATCH FOUND!")
                 print(f"Request No: {request_no}")
