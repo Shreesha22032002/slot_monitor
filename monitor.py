@@ -80,7 +80,7 @@ def check_slots():
             request_no = cols[1].inner_text().strip()
             department = cols[4].inner_text().strip().lower()
 
-            if department == "msc data science":
+            if department == "Gastroenterology and Hepatology":
                 if request_no not in seen_requests:
                     print("🚨 NEW CONSULTATION FOUND!")
                     print(f"Request No: {request_no}")
