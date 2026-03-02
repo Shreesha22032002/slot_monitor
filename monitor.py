@@ -1,17 +1,8 @@
-import os
-import requests
 from playwright.sync_api import sync_playwright
+import os
 
 PORTAL_USER = os.getenv("PORTAL_USER")
 PORTAL_PASS = os.getenv("PORTAL_PASS")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-
-
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    requests.get(url, params={"chat_id": CHAT_ID, "text": message})
-
 
 def check_slots():
     with sync_playwright() as p:
@@ -20,24 +11,32 @@ def check_slots():
 
         page.goto("https://portal.manipal.edu/statistics/I11")
 
-        # --- Step 1: Select "Student" from dropdown ---
+        # Wait for dropdown
+        page.wait_for_selector("select")
+
+        # Select Student
         page.select_option("select", label="Student")
 
-        # --- Step 2: Login ---
-        page.fill("input[name='username']", PORTAL_USER)
-        page.fill("input[name='password']", PORTAL_PASS)
-        page.click("button[type='submit']")
+        # IMPORTANT: Wait for postback reload
+        page.wait_for_load_state("networkidle")
+
+        # Wait for username field (type=text usually)
+        page.wait_for_selector("input[type='text']")
+
+        # Fill username
+        page.fill("input[type='text']", PORTAL_USER)
+
+        # Fill password (usually type=password)
+        page.fill("input[type='password']", PORTAL_PASS)
+
+        # Click login button
+        page.click("input[type='submit'], button")
 
         page.wait_for_load_state("networkidle")
 
-        # --- Step 3: Check table content ---
-        page_content = page.content()
-
-        if "MSc Data Science" in page_content:
-            send_telegram("🚨 New MSc Data Science entry detected!")
+        print("Login successful")
 
         browser.close()
-
 
 if __name__ == "__main__":
     check_slots()
