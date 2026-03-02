@@ -1,135 +1,111 @@
-import json
 import os
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+import time
+from playwright.sync_api import sync_playwright, TimeoutError
 
-PORTAL_URL = "https://portal.manipal.edu"
+PORTAL_URL = os.getenv("PORTAL_URL")
+PORTAL_USER = os.getenv("PORTAL_USER")
+PORTAL_PASS = os.getenv("PORTAL_PASS")
 
-USERNAME = os.getenv("PORTAL_USERNAME")
-PASSWORD = os.getenv("PORTAL_PASSWORD")
-
-SEEN_FILE = "seen_requests.json"
-
-
-# ---------------------------------
-# Persistent Storage
-# ---------------------------------
-
-def load_seen():
-    if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE, "r") as f:
-            return set(json.load(f))
-    return set()
+SEEN_FILE = "seen_requests.txt"
 
 
-def save_seen(data):
+def load_seen_requests():
+    if not os.path.exists(SEEN_FILE):
+        return set()
+    with open(SEEN_FILE, "r") as f:
+        return set(line.strip() for line in f.readlines())
+
+
+def save_seen_requests(seen):
     with open(SEEN_FILE, "w") as f:
-        json.dump(list(data), f)
+        for req in seen:
+            f.write(req + "\n")
 
-
-# ---------------------------------
-# Notification
-# ---------------------------------
-
-def send_notification(request_no):
-    print(f"🚨 NEW MSc Data Science Consultation Found: {request_no}")
-    # You can later plug Telegram or email here
-
-
-# ---------------------------------
-# Main Logic
-# ---------------------------------
 
 def check_slots():
-    seen_requests = load_seen()
-    current_requests = set()
+    seen_requests = load_seen_requests()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context()
+        page = context.new_page()
 
-        try:
-            print("Opening portal...")
-            page.goto(PORTAL_URL, timeout=60000)
+        print("Opening portal...")
+        page.goto(PORTAL_URL, timeout=60000)
 
-            # -------------------------------
-            # LOGIN FLOW (USE YOUR WORKING SELECTORS)
-            # -------------------------------
+        page.wait_for_selector("select", timeout=60000)
 
-            print("Selecting Student from dropdown...")
-            page.wait_for_selector("#ddltype", timeout=30000)
-            page.select_option("#ddltype", label="Student")
+        print("Selecting Student from dropdown...")
+        page.select_option("select", label="Student")
 
-            print("Clicking Continue...")
-            page.click("#btnContinue")
+        print("Clicking Continue...")
+        page.click("#btncontinue")
 
-            print("Waiting for login form...")
-            page.wait_for_selector("#txtUserName", timeout=30000)
+        print("Waiting for login form...")
+        page.wait_for_selector("input[type='password']", timeout=60000)
 
-            print("Entering credentials...")
-            page.fill("#txtUserName", USERNAME)
-            page.fill("#txtPassword", PASSWORD)
+        print("Entering credentials...")
+        page.fill("input[type='text']", PORTAL_USER)
+        page.fill("input[type='password']", PORTAL_PASS)
 
-            print("Submitting login...")
-            page.click("#btnLogin")
+        print("Submitting login...")
+        page.click("input[type='submit'], button")
 
-            page.wait_for_load_state("networkidle")
-            print("Login successful.")
+        page.wait_for_load_state("networkidle")
 
-            # -------------------------------
-            # CLICK "more" (I7)
-            # -------------------------------
+        print("Login successful.")
 
-            print("Clicking 'more' button...")
-            page.wait_for_selector("a[href='I7']", timeout=30000)
-            page.click("a[href='I7']")
+        # -------------------------
+        # CLICK "MORE"
+        # -------------------------
+        print("Clicking More...")
+        page.click("a[href='I7']")
+        page.wait_for_load_state("networkidle")
 
-            # Wait for Consultation page
-            page.wait_for_url("**/statistics/I7", timeout=60000)
-            page.wait_for_selector("#Griddets", timeout=60000)
+        print("Waiting for consultation table...")
+        page.wait_for_selector("#Griddets", timeout=60000)
 
-            print("Consultation page loaded.")
+        rows = page.query_selector_all("#Griddets tbody tr")
 
-            # -------------------------------
-            # PARSE TABLE
-            # -------------------------------
+        print(f"Total rows found: {len(rows)-1}")
 
-            rows = page.query_selector_all("#Griddets tbody tr")
+        new_found = False
 
-            for row in rows[1:]:  # skip header
-                cells = row.query_selector_all("td")
+        # Skip header row (first row)
+        for row in rows[1:]:
+            cols = row.query_selector_all("td")
+            if len(cols) < 5:
+                continue
 
-                # Skip pagination row
-                if len(cells) < 5:
-                    continue
+            request_no = cols[1].inner_text().strip()
+            department = cols[4].inner_text().strip().lower()
 
-                request_no = cells[1].inner_text().strip()
-                department = cells[4].inner_text().strip().lower()
+            if department == "msc data science":
+                if request_no not in seen_requests:
+                    print("🚨 NEW CONSULTATION FOUND!")
+                    print(f"Request No: {request_no}")
+                    print(f"Department: {department}")
+                    print("-" * 40)
 
-                if "msc data science" in department:
-                    current_requests.add(request_no)
+                    seen_requests.add(request_no)
+                    new_found = True
 
-                    if request_no not in seen_requests:
-                        send_notification(request_no)
+        if not new_found:
+            print("No new Msc Data Science consultations.")
 
-            # -------------------------------
-            # SAVE STATE
-            # -------------------------------
+        save_seen_requests(seen_requests)
 
-            seen_requests.update(current_requests)
-            save_seen(seen_requests)
+        browser.close()
 
-            print("Slot check completed.")
-
-        except PlaywrightTimeoutError as e:
-            print("Timeout occurred:", str(e))
-
-        finally:
-            browser.close()
-
-
-# ---------------------------------
-# Run Script
-# ---------------------------------
 
 if __name__ == "__main__":
-    check_slots()
+    try:
+        check_slots()
+    except TimeoutError:
+        print("Timeout occurred. Saving screenshot for debugging...")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.screenshot(path="error.png")
+            browser.close()
+        raise
