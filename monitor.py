@@ -2,17 +2,25 @@ import os
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
+# ===============================
+# ENV VARIABLES
+# ===============================
 PORTAL_URL = os.getenv("PORTAL_URL")
 PORTAL_USER = os.getenv("PORTAL_USER")
 PORTAL_PASS = os.getenv("PORTAL_PASS")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
+SEEN_FILE = "seen_requests.txt"
+
+
+# ===============================
+# TELEGRAM FUNCTION
+# ===============================
 def send_telegram_message(message):
-    bot_token = os.getenv("BOT_TOKEN")
-    chat_id = os.getenv("CHAT_ID")
-
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": chat_id,
+        "chat_id": CHAT_ID,
         "text": message
     }
 
@@ -20,7 +28,29 @@ def send_telegram_message(message):
     print("Telegram response:", response.text)
 
 
+# ===============================
+# FILE HANDLING
+# ===============================
+def load_seen_requests():
+    if not os.path.exists(SEEN_FILE):
+        return set()
+
+    with open(SEEN_FILE, "r") as f:
+        return set(line.strip() for line in f.readlines())
+
+
+def save_seen_requests(seen):
+    with open(SEEN_FILE, "w") as f:
+        for req in seen:
+            f.write(req + "\n")
+
+
+# ===============================
+# MAIN MONITOR FUNCTION
+# ===============================
 def check_slots():
+    seen_requests = load_seen_requests()
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -48,56 +78,71 @@ def check_slots():
         page.click("input[type='submit'], button")
 
         page.wait_for_load_state("networkidle")
-
         print("Login successful.")
 
-        # CLICK MORE
+        # ===============================
+        # CLICK MORE (I7 PAGE)
+        # ===============================
         print("Clicking More...")
         page.click("a[href='I7']")
         page.wait_for_load_state("networkidle")
 
-        print("Waiting for consultation table...")
-        page.wait_for_selector("#Griddets", timeout=60000)
+        # ===============================
+        # CHECK UPCOMING CONSULTATIONS
+        # ===============================
+        print("Waiting for Upcoming Consultations table...")
+        page.wait_for_selector("#Panel1 table", timeout=60000)
 
-        rows = page.query_selector_all("#Griddets tbody tr")
-
-        print(f"Total rows found: {len(rows)-1}")
+        rows = page.query_selector_all("#Panel1 table tbody tr")
+        print(f"Upcoming rows found: {len(rows)}")
 
         new_found = False
 
-        # ✅ LOOP MUST BE INSIDE FUNCTION
-        for row in rows[1:]:  # skip header
+        for row in rows:
             cols = row.query_selector_all("td")
+
+            # Skip invalid rows
             if len(cols) < 5:
                 continue
 
             request_no = cols[1].inner_text().strip()
             department = cols[4].inner_text().strip()
 
+            # Ignore pagination or invalid rows
+            if not request_no.startswith("STAT"):
+                continue
+
             print(f"Checking → {request_no} | {department}")
 
-            # TEST CONDITION
-            if "m.sc.rrt&dt" in department.lower():
+            # ===============================
+            # DUPLICATE CHECK
+            # ===============================
+            if request_no not in seen_requests:
 
-                print("🚨 TEST MATCH FOUND!")
+                print("🚨 NEW UPCOMING CONSULTATION FOUND!")
                 print(f"Request No: {request_no}")
                 print(f"Department: {department}")
                 print("-" * 40)
 
                 send_telegram_message(
-                    f"🚨 TEST ALERT\n"
+                    f"🚨 NEW UPCOMING CONSULTATION\n"
                     f"Request: {request_no}\n"
                     f"Department: {department}"
                 )
 
+                seen_requests.add(request_no)
                 new_found = True
 
         if not new_found:
-            print("No Physiology consultations found.")
+            print("No new upcoming consultations.")
 
+        save_seen_requests(seen_requests)
         browser.close()
 
 
+# ===============================
+# ENTRY POINT
+# ===============================
 if __name__ == "__main__":
     try:
         check_slots()
