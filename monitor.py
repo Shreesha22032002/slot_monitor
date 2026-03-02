@@ -11,6 +11,9 @@ PORTAL_PASS = os.getenv("PORTAL_PASS")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+# Department to monitor (change here if needed)
+TARGET_DEPARTMENT = "data science"
+
 SEEN_FILE = "seen_requests.txt"
 
 
@@ -108,24 +111,30 @@ def check_slots():
             request_no = cols[1].inner_text().strip()
             department = cols[4].inner_text().strip()
 
-            # Ignore pagination or invalid rows
+            # Ignore pagination rows
             if not request_no.startswith("STAT"):
                 continue
 
             print(f"Checking → {request_no} | {department}")
 
             # ===============================
+            # FILTER FOR DATA SCIENCE
+            # ===============================
+            if TARGET_DEPARTMENT not in department.lower():
+                continue
+
+            # ===============================
             # DUPLICATE CHECK
             # ===============================
             if request_no not in seen_requests:
 
-                print("🚨 NEW UPCOMING CONSULTATION FOUND!")
+                print("🚨 NEW DATA SCIENCE CONSULTATION FOUND!")
                 print(f"Request No: {request_no}")
                 print(f"Department: {department}")
                 print("-" * 40)
 
                 send_telegram_message(
-                    f"🚨 NEW UPCOMING CONSULTATION\n"
+                    f"🚨 NEW DATA SCIENCE CONSULTATION\n"
                     f"Request: {request_no}\n"
                     f"Department: {department}"
                 )
@@ -134,7 +143,7 @@ def check_slots():
                 new_found = True
 
         if not new_found:
-            print("No new upcoming consultations.")
+            print("No new Data Science upcoming consultations.")
 
         save_seen_requests(seen_requests)
         browser.close()
