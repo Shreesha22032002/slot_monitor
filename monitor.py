@@ -1,6 +1,6 @@
 import json
 import os
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 PORTAL_URL = "https://portal.manipal.edu"
 
@@ -10,9 +10,9 @@ PASSWORD = os.getenv("PORTAL_PASSWORD")
 SEEN_FILE = "seen_requests.json"
 
 
-# -------------------------------
+# ---------------------------------
 # Persistent Storage
-# -------------------------------
+# ---------------------------------
 
 def load_seen():
     if os.path.exists(SEEN_FILE):
@@ -26,18 +26,18 @@ def save_seen(data):
         json.dump(list(data), f)
 
 
-# -------------------------------
+# ---------------------------------
 # Notification
-# -------------------------------
+# ---------------------------------
 
 def send_notification(request_no):
     print(f"🚨 NEW MSc Data Science Consultation Found: {request_no}")
-    # Later we can add Telegram/Email here
+    # You can later plug Telegram or email here
 
 
-# -------------------------------
+# ---------------------------------
 # Main Logic
-# -------------------------------
+# ---------------------------------
 
 def check_slots():
     seen_requests = load_seen()
@@ -47,84 +47,89 @@ def check_slots():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        print("Opening portal...")
-        page.goto(PORTAL_URL, timeout=60000)
+        try:
+            print("Opening portal...")
+            page.goto(PORTAL_URL, timeout=60000)
 
-        # -------------------------------
-        # LOGIN FLOW (Keep your working logic)
-        # -------------------------------
+            # -------------------------------
+            # LOGIN FLOW (USE YOUR WORKING SELECTORS)
+            # -------------------------------
 
-        print("Selecting Student from dropdown...")
-        page.select_option("select", label="Student")
+            print("Selecting Student from dropdown...")
+            page.wait_for_selector("#ddltype", timeout=30000)
+            page.select_option("#ddltype", label="Student")
 
-        print("Clicking Continue...")
-        page.click("button:has-text('Continue')")
+            print("Clicking Continue...")
+            page.click("#btnContinue")
 
-        print("Waiting for login form...")
-        page.wait_for_selector("input[type='password']")
+            print("Waiting for login form...")
+            page.wait_for_selector("#txtUserName", timeout=30000)
 
-        print("Entering credentials...")
-        page.fill("input[type='text']", USERNAME)
-        page.fill("input[type='password']", PASSWORD)
+            print("Entering credentials...")
+            page.fill("#txtUserName", USERNAME)
+            page.fill("#txtPassword", PASSWORD)
 
-        print("Submitting login...")
-        page.click("button:has-text('Login')")
+            print("Submitting login...")
+            page.click("#btnLogin")
 
-        page.wait_for_load_state("networkidle")
-        print("Login successful.")
+            page.wait_for_load_state("networkidle")
+            print("Login successful.")
 
-        # -------------------------------
-        # CLICK "more" (I7)
-        # -------------------------------
+            # -------------------------------
+            # CLICK "more" (I7)
+            # -------------------------------
 
-        print("Clicking 'more' button...")
-        page.wait_for_selector("a[href='I7']")
-        page.click("a[href='I7']")
+            print("Clicking 'more' button...")
+            page.wait_for_selector("a[href='I7']", timeout=30000)
+            page.click("a[href='I7']")
 
-        # Wait until Consultation Details page loads
-        page.wait_for_url("**/statistics/I7")
-        page.wait_for_selector("#Griddets")
+            # Wait for Consultation page
+            page.wait_for_url("**/statistics/I7", timeout=60000)
+            page.wait_for_selector("#Griddets", timeout=60000)
 
-        print("Consultation page loaded.")
+            print("Consultation page loaded.")
 
-        # -------------------------------
-        # PARSE TABLE
-        # -------------------------------
+            # -------------------------------
+            # PARSE TABLE
+            # -------------------------------
 
-        rows = page.query_selector_all("#Griddets tbody tr")
+            rows = page.query_selector_all("#Griddets tbody tr")
 
-        for row in rows[1:]:  # Skip header
-            cells = row.query_selector_all("td")
+            for row in rows[1:]:  # skip header
+                cells = row.query_selector_all("td")
 
-            # Skip pagination row
-            if len(cells) < 5:
-                continue
+                # Skip pagination row
+                if len(cells) < 5:
+                    continue
 
-            request_no = cells[1].inner_text().strip()
-            department = cells[4].inner_text().strip().lower()
+                request_no = cells[1].inner_text().strip()
+                department = cells[4].inner_text().strip().lower()
 
-            # Filter MSc Data Science
-            if "msc data science" in department:
-                current_requests.add(request_no)
+                if "msc data science" in department:
+                    current_requests.add(request_no)
 
-                if request_no not in seen_requests:
-                    send_notification(request_no)
+                    if request_no not in seen_requests:
+                        send_notification(request_no)
 
-        # -------------------------------
-        # SAVE STATE
-        # -------------------------------
+            # -------------------------------
+            # SAVE STATE
+            # -------------------------------
 
-        seen_requests.update(current_requests)
-        save_seen(seen_requests)
+            seen_requests.update(current_requests)
+            save_seen(seen_requests)
 
-        browser.close()
+            print("Slot check completed.")
 
-    print("Slot check completed.")
+        except PlaywrightTimeoutError as e:
+            print("Timeout occurred:", str(e))
+
+        finally:
+            browser.close()
 
 
-# -------------------------------
+# ---------------------------------
 # Run Script
-# -------------------------------
+# ---------------------------------
 
 if __name__ == "__main__":
     check_slots()
