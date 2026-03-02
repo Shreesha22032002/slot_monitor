@@ -1,12 +1,10 @@
 import os
-import time
+import requests
 from playwright.sync_api import sync_playwright, TimeoutError
 
 PORTAL_URL = os.getenv("PORTAL_URL")
 PORTAL_USER = os.getenv("PORTAL_USER")
 PORTAL_PASS = os.getenv("PORTAL_PASS")
-
-SEEN_FILE = "seen_requests.txt"
 
 def send_telegram_message(message):
     bot_token = os.getenv("BOT_TOKEN")
@@ -18,24 +16,11 @@ def send_telegram_message(message):
         "text": message
     }
 
-    requests.post(url, data=payload)
-    
-def load_seen_requests():
-    if not os.path.exists(SEEN_FILE):
-        return set()
-    with open(SEEN_FILE, "r") as f:
-        return set(line.strip() for line in f.readlines())
-
-
-def save_seen_requests(seen):
-    with open(SEEN_FILE, "w") as f:
-        for req in seen:
-            f.write(req + "\n")
+    response = requests.post(url, data=payload)
+    print("Telegram response:", response.text)
 
 
 def check_slots():
-    seen_requests = load_seen_requests()
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -66,9 +51,7 @@ def check_slots():
 
         print("Login successful.")
 
-        # -------------------------
-        # CLICK "MORE"
-        # -------------------------
+        # CLICK MORE
         print("Clicking More...")
         page.click("a[href='I7']")
         page.wait_for_load_state("networkidle")
@@ -82,37 +65,35 @@ def check_slots():
 
         new_found = False
 
-for row in rows[1:]:  # skip header row
-    cols = row.query_selector_all("td")
-    if len(cols) < 5:
-        continue
+        # ✅ LOOP MUST BE INSIDE FUNCTION
+        for row in rows[1:]:  # skip header
+            cols = row.query_selector_all("td")
+            if len(cols) < 5:
+                continue
 
-    request_no = cols[1].inner_text().strip()
-    department = cols[4].inner_text().strip()
+            request_no = cols[1].inner_text().strip()
+            department = cols[4].inner_text().strip()
 
-    print(f"Checking → {request_no} | {department}")
+            print(f"Checking → {request_no} | {department}")
 
-    # TEST CONDITION
-    if "physiology" in department.lower():
+            # TEST CONDITION
+            if "physiology" in department.lower():
 
-        print("🚨 TEST MATCH FOUND!")
-        print(f"Request No: {request_no}")
-        print(f"Department: {department}")
-        print("-" * 40)
+                print("🚨 TEST MATCH FOUND!")
+                print(f"Request No: {request_no}")
+                print(f"Department: {department}")
+                print("-" * 40)
 
-        # 🔔 Telegram call
-        send_telegram_message(
-            f"🚨 TEST ALERT\n"
-            f"Request: {request_no}\n"
-            f"Department: {department}"
-        )
+                send_telegram_message(
+                    f"🚨 TEST ALERT\n"
+                    f"Request: {request_no}\n"
+                    f"Department: {department}"
+                )
 
-        new_found = True
+                new_found = True
 
-if not new_found:
-    print("No Physiology consultations found.")
-
-        save_seen_requests(seen_requests)
+        if not new_found:
+            print("No Physiology consultations found.")
 
         browser.close()
 
@@ -121,10 +102,5 @@ if __name__ == "__main__":
     try:
         check_slots()
     except TimeoutError:
-        print("Timeout occurred. Saving screenshot for debugging...")
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.screenshot(path="error.png")
-            browser.close()
+        print("Timeout occurred.")
         raise
