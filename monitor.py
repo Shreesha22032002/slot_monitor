@@ -1,61 +1,130 @@
+import json
 import os
-from playwright.sync_api import sync_playwright, TimeoutError
+from playwright.sync_api import sync_playwright
 
-PORTAL_URL = os.getenv("PORTAL_URL")
-PORTAL_USER = os.getenv("PORTAL_USER")
-PORTAL_PASS = os.getenv("PORTAL_PASS")
+PORTAL_URL = "https://portal.manipal.edu"
+
+USERNAME = os.getenv("PORTAL_USERNAME")
+PASSWORD = os.getenv("PORTAL_PASSWORD")
+
+SEEN_FILE = "seen_requests.json"
+
+
+# -------------------------------
+# Persistent Storage
+# -------------------------------
+
+def load_seen():
+    if os.path.exists(SEEN_FILE):
+        with open(SEEN_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
+
+
+def save_seen(data):
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(data), f)
+
+
+# -------------------------------
+# Notification
+# -------------------------------
+
+def send_notification(request_no):
+    print(f"🚨 NEW MSc Data Science Consultation Found: {request_no}")
+    # Later we can add Telegram/Email here
+
+
+# -------------------------------
+# Main Logic
+# -------------------------------
 
 def check_slots():
+    seen_requests = load_seen()
+    current_requests = set()
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
+        page = browser.new_page()
 
         print("Opening portal...")
         page.goto(PORTAL_URL, timeout=60000)
 
-        # Wait for dropdown
-        page.wait_for_selector("select", timeout=60000)
+        # -------------------------------
+        # LOGIN FLOW (Keep your working logic)
+        # -------------------------------
 
         print("Selecting Student from dropdown...")
         page.select_option("select", label="Student")
 
         print("Clicking Continue...")
-        page.click("#btncontinue")
+        page.click("button:has-text('Continue')")
 
-        # ASP.NET postback — wait for login fields instead of navigation
         print("Waiting for login form...")
-        page.wait_for_selector("input[type='password']", timeout=60000)
+        page.wait_for_selector("input[type='password']")
 
         print("Entering credentials...")
-        page.fill("input[type='text']", PORTAL_USER)
-        page.fill("input[type='password']", PORTAL_PASS)
+        page.fill("input[type='text']", USERNAME)
+        page.fill("input[type='password']", PASSWORD)
 
         print("Submitting login...")
-        page.click("input[type='submit'], button")
+        page.click("button:has-text('Login')")
 
-        # Wait for dashboard / next page
         page.wait_for_load_state("networkidle")
+        print("Login successful.")
 
-        print("Login successful. Checking slots...")
+        # -------------------------------
+        # CLICK "more" (I7)
+        # -------------------------------
 
-        # TODO: Add your slot checking logic here
-        # Example:
-        # page.wait_for_selector("text=No slots available", timeout=30000)
+        print("Clicking 'more' button...")
+        page.wait_for_selector("a[href='I7']")
+        page.click("a[href='I7']")
 
-        print("Slot check completed.")
+        # Wait until Consultation Details page loads
+        page.wait_for_url("**/statistics/I7")
+        page.wait_for_selector("#Griddets")
+
+        print("Consultation page loaded.")
+
+        # -------------------------------
+        # PARSE TABLE
+        # -------------------------------
+
+        rows = page.query_selector_all("#Griddets tbody tr")
+
+        for row in rows[1:]:  # Skip header
+            cells = row.query_selector_all("td")
+
+            # Skip pagination row
+            if len(cells) < 5:
+                continue
+
+            request_no = cells[1].inner_text().strip()
+            department = cells[4].inner_text().strip().lower()
+
+            # Filter MSc Data Science
+            if "msc data science" in department:
+                current_requests.add(request_no)
+
+                if request_no not in seen_requests:
+                    send_notification(request_no)
+
+        # -------------------------------
+        # SAVE STATE
+        # -------------------------------
+
+        seen_requests.update(current_requests)
+        save_seen(seen_requests)
 
         browser.close()
 
+    print("Slot check completed.")
+
+
+# -------------------------------
+# Run Script
+# -------------------------------
 
 if __name__ == "__main__":
-    try:
-        check_slots()
-    except TimeoutError:
-        print("Timeout occurred. Saving screenshot for debugging...")
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.screenshot(path="error.png")
-            browser.close()
-        raise
+    check_slots()
