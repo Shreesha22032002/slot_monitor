@@ -16,7 +16,7 @@ CHAT_ID = os.getenv("CHAT_ID")
 TARGET_DEPARTMENT = "data science"
 SEEN_FILE = "seen_requests.txt"
 
-CHECK_INTERVAL = 60  # seconds
+CHECK_INTERVAL = 05  # seconds
 
 
 # ===============================
